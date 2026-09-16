@@ -1,0 +1,37 @@
+"sample","altMidExon_isoform","total_count","percentage","groups"
+"barcode10","Longer exon",235161,53.1278804966654,"CRISPR
+clones"
+"barcode10","Shorter exon",136211,30.7729671600788,"CRISPR
+clones"
+"barcode10","Others",71260,16.0991523432558,"CRISPR
+clones"
+"barcode11","Longer exon",184010,45.9435773620332,"CRISPR
+clones"
+"barcode11","Shorter exon",155281,38.7705267993798,"CRISPR
+clones"
+"barcode11","Others",61222,15.285895838587,"CRISPR
+clones"
+"barcode12","Longer exon",266134,67.8856116704461,"CRISPR
+clones"
+"barcode12","Shorter exon",76401,19.4884104144294,"CRISPR
+clones"
+"barcode12","Others",49498,12.6259779151245,"CRISPR
+clones"
+"barcode13","Longer exon",257701,54.4098862189604,"CRISPR
+clones"
+"barcode13","Shorter exon",147350,31.1108483644371,"CRISPR
+clones"
+"barcode13","Others",68578,14.4792654166024,"CRISPR
+clones"
+"barcode14","Longer exon",219847,50.9208024218111,"CRISPR
+clones"
+"barcode14","Shorter exon",154629,35.8150566424933,"CRISPR
+clones"
+"barcode14","Others",57267,13.2641409356955,"CRISPR
+clones"
+"barcode15","Longer exon",312101,71.2336552265616,"WT"
+"barcode15","Shorter exon",33511,7.64852089643194,"WT"
+"barcode15","Others",92525,21.1178238770065,"WT"
+"barcode16","Longer exon",303760,71.0878956803385,"WT"
+"barcode16","Shorter exon",56226,13.1583751070671,"WT"
+"barcode16","Others",67316,15.7537292125944,"WT"

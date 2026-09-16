@@ -1,0 +1,1 @@
+(((((((Homo_sapiens,Mus_musculus)Mammalia,Gallus_gallus),Chrysemys_picta_bellii)Amniota,Xenopus_tropicalis)Tetrapoda,Danio_rerio)Vertebrata,Saccharomyces_cerevisiae)Opisthokonta,((Oryza_sativa,Arabidopsis_thaliana)Angiospermae,Physcomitrium_patens)Viridiplantae)Eukaryota;
