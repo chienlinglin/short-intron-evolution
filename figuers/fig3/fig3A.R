@@ -1,39 +1,108 @@
 library(dplyr)
-library(tidyr)
+library(tidyverse)
+library(BSgenome.Hsapiens.UCSC.hg38)
+genome <- BSgenome.Hsapiens.UCSC.hg38
 library(ggplot2)
-library(wesanderson)
-library(RColorBrewer)
+library(ggpubr)
+library(VarCon)
 
-human_short_counts <- read.csv("human_uniqShortIntron_counts.csv")
-ageScore_colors <- setNames(wes_palette("Darjeeling2", length(unique(human_short_counts$ageScore)),
-                                        type = "discrete"), 
-                            levels(human_short_counts$ageScore))
-
-human_ortho_short_intron_ratio <- ggplot(human_short_counts,
-                                         aes(x = "Human short\northologous introns", y = percent, fill = factor(ageScore))) +
-  geom_bar(stat = "identity", width = 0.6) +
-  geom_text(aes(label = label),
-            position = position_stack(vjust = 0.5),
-            size = 3, color = "white") +
-  scale_fill_manual(values = ageScore_colors) +
-  coord_flip() +
-  labs(x = "",
-       y = "",
-       fill = "Age Score") +
-  theme_minimal() +
-  theme(
-    text = element_text(size = 15),
-    axis.text.x = element_blank(),
-    axis.text.y = element_text(size = 17),
-    axis.ticks.x = element_blank(),
-    panel.grid.major = element_blank(),
-    panel.grid.minor = element_blank(),
-    legend.position = c(0.5, 0),             
-    legend.justification = c("center", "bottom"),
-    legend.direction = "horizontal"         
+unique_intronPOS <- read.csv("unique_intronPOS.csv") #  # derived from short-intron-evolution/data_processing/human_introns_examined.R
+### 5'SS region (-3 ~ +6)
+unique_intronPOS$fivePrime <- 
+  as.character(getSeq(genome, 
+                      unique_intronPOS$seqnames,
+                      start = ifelse(unique_intronPOS$strand=="+",
+                                     unique_intronPOS$start - 3,
+                                     unique_intronPOS$end -5
+                      ), 
+                      end = ifelse(unique_intronPOS$strand=="+",
+                                   unique_intronPOS$start + 5,
+                                   unique_intronPOS$end + 3),
+                      strand = unique_intronPOS$strand)
+  )
+## 3'SS region (-20 ~ +3)
+unique_intronPOS$threePrime <- 
+  as.character(getSeq(genome, 
+                      unique_intronPOS$seqnames,
+                      start = ifelse(unique_intronPOS$strand=="+",
+                                     unique_intronPOS$end - 19,
+                                     unique_intronPOS$start -3
+                      ), 
+                      end = ifelse(unique_intronPOS$strand=="+",
+                                   unique_intronPOS$end + 3,
+                                   unique_intronPOS$start + 19),
+                      strand = unique_intronPOS$strand)
   )
 
-human_ortho_short_intron_ratio
+## maxent
+unique_intronPOS$maxent_5ss <- calculateMaxEntScanScore(unique_intronPOS$fivePrime, 5)
+unique_intronPOS$maxent_3ss <- calculateMaxEntScanScore(unique_intronPOS$threePrime, 3)
+final_df <- unique_intronPOS %>%
+  mutate(intron_type = ifelse(intron_length>100,
+                              "Long",
+                              ifelse(
+                                GC_content >= 0.45,"GC-rich\nshort","AT-rich\nshort"
+                              ))
+  ) %>%
+  pivot_longer(cols = c("maxent_5ss", "maxent_3ss"), 
+               names_to = "Splice_site", 
+               values_to = "MaxEntScore") %>%
+  mutate(MaxEntScore = as.numeric(MaxEntScore))
 
-ggsave(human_ortho_short_intron_ratio,filename = "human_ortho_short_intron_ratio.pdf",
-       width=8.5,height = 1.7)
+
+#### plot fig5B ####
+# for compare
+my_comparisons <- list(
+  c("GC-rich\nshort", "AT-rich\nshort"),
+  c("AT-rich\nshort", "Long"),
+  c("GC-rich\nshort", "Long")
+)
+# for hline
+long_median <- final_df %>%
+  mutate(Splice_site = factor(ifelse(Splice_site == "maxent_5ss", "5'SS", "3'SS"),
+                              levels = c("5'SS", "3'SS")),
+         intron_type = factor(intron_type,
+                              levels = c("GC-rich\nshort", "AT-rich\nshort", "Long"))
+  ) %>%
+  filter(intron_type == "Long") %>%
+  group_by(Splice_site) %>%
+  summarise(median_score = median(MaxEntScore, na.rm = TRUE), .groups = "drop")
+
+# main plot
+maxent_intron <- final_df %>%  
+  mutate(Splice_site = factor(ifelse(Splice_site=="maxent_5ss","5'SS","3'SS"),
+                              levels = c("5'SS","3'SS")),
+         intron_type = factor(intron_type,
+                              levels = c("GC-rich\nshort",
+                                         "AT-rich\nshort",
+                                         "Long"))
+  ) %>%
+  ggplot(aes(x=intron_type, y=MaxEntScore,
+             fill=intron_type)) + 
+  geom_boxplot(outliers = F, alpha = 0.5)+
+  facet_grid( ~ Splice_site,
+              scales = "free_y") +
+  geom_hline(data     = long_median,
+             aes(yintercept = median_score),
+             color    = "grey88",
+             linewidth = 0.6,
+             linetype = "dashed") +
+  xlab("Introns")+
+  ylab("Splice site strength\n(MaxEntScore)")+
+  stat_compare_means(
+    comparisons   = my_comparisons,
+    method        = "wilcox.test",
+    size = 3,
+    label.y = c(12,12,13)) +
+  theme_linedraw(base_size = 14.5) +
+  theme(legend.position = "none",
+        panel.grid.major = element_line(color = "grey90", linewidth = 0.4),
+        panel.grid.minor = element_line(color = "grey95", linewidth = 0.3),
+        strip.background = element_blank(),
+        strip.text = element_text(size = 16, color = "black", face = "bold")
+  )
+
+maxent_intron 
+
+ggsave(filename = "maxent_GCATintrons.pdf", plot = maxent_intron, 
+       width = 6, height = 6)

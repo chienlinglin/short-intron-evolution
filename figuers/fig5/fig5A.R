@@ -1,93 +1,121 @@
 library(dplyr)
-library(tidyr)
-library(Biostrings)
-library(ggseqlogo)
+library(tidyverse)
+library(openxlsx)
 library(ggplot2)
-library(BSgenome.Hsapiens.UCSC.hg38)
-genome <- BSgenome.Hsapiens.UCSC.hg38
+### genecode v38 version
+# GC
+sheets <- getSheetNames("human_ordersGC.xlsx")
+human_ordersGC <- setNames(
+  lapply(sheets, 
+         function(x) {
+           read.xlsx("human_ordersGC.xlsx", sheet = x)
+           }), 
+  sheets)
 
-unique_intronPOS <- read.csv("unique_intronPOS.csv") # derived from short-intron-evolution/data_processing/human_introns_examined.R
-
-## intronic - 5'SS:15 nt & 3'SS:20
-## exonic - 10 nt
-unique_SSregions <- unique_intronPOS %>%
-  mutate(region5_start = ifelse(strand=="+", start-10, end-14),
-         region5_end = ifelse(strand=="+", start+14, end+10),
-         region3_start = ifelse(strand=="+", end-19, start-10),
-         region3_end = ifelse(strand=="+", end+10, start+19))
-
-## get sequences
-unique_SSregions$region5_seq <- 
-  as.character(getSeq(genome, unique_SSregions$seqnames,
-                      start=unique_SSregions$region5_start, 
-                      end=unique_SSregions$region5_end,
-                      strand=unique_SSregions$strand))
-
-unique_SSregions$region3_seq <- 
-  as.character(getSeq(genome, unique_SSregions$seqnames,
-                      start=unique_SSregions$region3_start, 
-                      end=unique_SSregions$region3_end,
-                      strand=unique_SSregions$strand))
-
-
-## ggseqlogo
-# all introns
-all_5 <- ggseqlogo(unique_SSregions$region5_seq)+ ggtitle("all intron 5' region")
-all_3 <- ggseqlogo(unique_SSregions$region3_seq,method = "prob")+ ggtitle("all intron 3' region")
-
-## function for 5ss
-fun_5 <- function(df,titles){
-  df %>%
-    pull(region5_seq) %>%
-    ggseqlogo(method = 'prob' ) +
-    annotate('rect', xmin = 10.5, xmax = 12.5, ymin = -0.05, ymax = 1.05, 
-             alpha = .1, col='black', fill='burlywood2') + 
-    annotate('text', x=11.5, y=1.1, label="5'SS") +  
-    xlab(titles) +
-    coord_cartesian(xlim = c(1,30)) +
-    theme(
-      axis.text.x = element_blank(),
-      axis.ticks.x = element_blank()
-    ) 
-}
-## function for 3ss
-fun_3 <- function(df,titles){
-  df %>%
-    pull(region3_seq) %>%
-    ggseqlogo(method = 'prob' )+
-    annotate('rect', xmin = 18.5, xmax = 20.5, ymin = -0.05, ymax = 1.05, 
-             alpha = .1, col='black', fill='burlywood2') + 
-    annotate('text', x=19.5, y=1.1, label="3'SS") +
-    xlab(titles)+ 
-    coord_cartesian(xlim = c(1,30)) +
-    theme(
-      axis.text.x = element_blank(),
-      axis.ticks.x = element_blank()
+# AT
+sheets <- getSheetNames("human_ordersAT.xlsx")
+human_ordersAT <- setNames(
+  lapply(sheets, 
+         function(x) {
+           read.xlsx("human_ordersAT.xlsx", sheet = x)
+           }),
+  sheets
+)
+### functions for processing df ####
+make_cluster_plot_df <- function(orders, cutoff = 20) {
+  
+  if (!all(c("observed_raw", "shuffle_mean_df") %in% names(orders))) {
+    stop("orders must contain observed_raw and shuffle_mean_df")
+  }
+  
+  raw_df <- rbind(
+    orders$shuffle_mean_df,
+    orders$observed_raw %>%
+      transmute(
+        value = delta_order,
+        type = "observed"
+      )
+  )
+  
+  raw_df_mod <- raw_df %>%
+    mutate(
+      distance_group = ifelse(round(value, 0) >= cutoff,
+                              paste0("≥", cutoff),
+                              as.character(round(value, 0))),
+      distance_group = factor(
+        distance_group,
+        levels = c(as.character(1:(cutoff-1)), paste0("≥", cutoff))
+      ),
+      type = ifelse(type == "Shuffled_mean",
+                    paste0("Shuffled background (n=1000)"),
+                    "Observed short intron positions")
     )
+  
+  return(raw_df_mod)
 }
-# short introns
-short_only <- unique_SSregions %>% filter(intron_length<=100) %>%
-  mutate(GC_type = ifelse(
-    GC_content >= 0.45,"GC-rich","AT-rich"
-  ))
-shortGC_5 <- fun_5(short_only %>%
-                     filter(GC_type=="GC-rich"),"GC-rich short introns")
-shortAT_5 <- fun_5(short_only %>%
-                     filter(GC_type=="AT-rich"),"AT-rich short introns")
-shortGC_3 <- fun_3(short_only %>%
-                     filter(GC_type=="GC-rich"),"GC-rich short introns")
-shortAT_3 <- fun_3(short_only %>%
-                     filter(GC_type=="AT-rich"),"AT-rich short introns")
+make_species_df <- function(orders, species_name) {
+  df <- make_cluster_plot_df(orders)
+  df$species <- species_name
+  df$ks_label <- colnames(orders$ks_text)
+  return(df)
+}
+#### prepare for ploting ####
+humanGC_df      <- make_species_df(human_ordersGC,     "Human")
 
-# long introns
-long_only <- unique_SSregions %>% filter(intron_length>100)
-long_5 <- fun_5(long_only,"Long introns")
-long_3 <- fun_3(long_only,"Long introns")
+humanAT_df      <- make_species_df(human_ordersAT,     "Human")
 
-# plot fig5A
-pdf("introns_ggseq.pdf", width = 10, height = 5.5)
+humanGC_df2 <- humanGC_df %>%
+  mutate(intron_type = "GC-rich")
+humanAT_df2 <- humanAT_df %>%
+  mutate(intron_type = "AT-rich")
 
-gridExtra::grid.arrange(shortGC_5, shortGC_3,
-                        shortAT_5, shortAT_3,
-                        long_5,long_3, ncol = 2)
-dev.off()
+human_combined_df <- bind_rows(humanGC_df2, humanAT_df2) %>%
+  mutate(intron_type = factor(intron_type, levels = c("GC-rich", "AT-rich")))
+
+ks_combined_df <- human_combined_df %>%
+  distinct(intron_type, species, ks_label) %>%
+  mutate(x = Inf, y = Inf)
+
+
+
+#### plots ####
+human_combined_plot <- human_combined_df %>%
+  filter(!is.na(distance_group)) %>%
+  ggplot(aes(x = distance_group, fill = type)) +
+  geom_bar(color = "black", alpha = 0.5, position = "identity", lwd = 0.1) +
+  scale_fill_manual(values = c("#FF6A6A", "#2F4F4F")) +
+  facet_grid(intron_type ~ ., scales = "free_y",
+             labeller = labeller(intron_type = c(
+               "GC-rich" = "GC-rich short",
+               "AT-rich" = "AT-rich short"
+             ))
+             
+  ) +
+  labs(fill = "",
+       x = "Number of exons to next GC-rich or AT-rich short intron",
+       y = "Count"
+  ) +
+  geom_text(
+    data = ks_combined_df,
+    aes(label = ks_label, x = x, y = y),
+    inherit.aes = FALSE,
+    hjust = 1, vjust = 1,
+    size = 4, color = "black"
+  ) +
+  theme_linedraw() +
+  theme(
+    text = element_text(size = 13),
+    legend.position = "inside",
+    legend.background = element_blank(),
+    legend.position.inside = c(0.65, 0.75),
+    axis.text.x = element_text(angle = 0, hjust = 0.5, size = 10),
+    panel.grid.major         = element_line(color = "grey95", linewidth = 0.4),
+    panel.grid.minor         = element_blank(),
+    strip.background         = element_blank(),
+    strip.text               = element_text(size = 12, color = "black", face = "bold")
+  )
+#### save plots ####
+ggsave(filename = "human_GCAT.pdf",
+       human_combined_plot,
+       width = 5, height = 5
+)

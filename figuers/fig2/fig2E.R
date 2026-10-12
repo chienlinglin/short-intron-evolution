@@ -1,41 +1,82 @@
+library(DBI)
+library(RSQLite)
 library(dplyr)
 library(tidyr)
 library(ggplot2)
-library(wesanderson)
-library(RColorBrewer)
+library(BSgenome.Hsapiens.UCSC.hg38)
+library(Biostrings)
+library(readr)
 
-human_counts <- read.csv("human_uniqIntron_counts.csv")
+#### import result
+result_all_tissues <- read_csv("aging_MSR_result_all_tissues.csv")
 
-ageScore_colors <- setNames(wes_palette("Darjeeling2", length(unique(human_counts$ageScore)),
-                                        type = "discrete"), 
-                            levels(human_counts$ageScore))
-
-human_ortho_all_intron_ratio <- human_counts %>%
-  ggplot(aes(x = "Human all\northologous introns", y = percent, fill = factor(ageScore))) +
-  geom_bar(stat = "identity", width = 0.6) +
-  geom_text(aes(label = label),
-            position = position_stack(vjust = 0.5),
-            size = 3, color = "white") +
-  scale_fill_manual(values = ageScore_colors) +
-  coord_flip() +
-  labs(x = "",
-       y = "",
-       fill = "Age Score") +
-  theme_minimal() +
-  theme(
-    text = element_text(size = 15),
-    axis.text.x = element_blank(),
-    axis.text.y = element_text(size = 17),
-    axis.ticks.x = element_blank(),
-    panel.grid.major = element_blank(),
-    panel.grid.minor = element_blank(),
-    legend.position = c(0.5, 0),             
-    legend.justification = c("center", "bottom"),
-    legend.direction = "horizontal",
-    legend.background = element_blank()
+result_all_tissues <- result_all_tissues %>%
+  mutate(
+    tissue = tissue %>%
+      sub("_misspliced$", "", .) %>%     
+      tolower() %>%  
+      tools::toTitleCase() 
   )
 
-human_ortho_all_intron_ratio
+forest_df <- result_all_tissues %>%
+  mutate(
+    sig = p_adj < 0.05,
+    p_adj_label = ifelse(
+      p_adj < 2.2e-16,
+      2.2e-16,
+      p_adj),
+    neglog10_p_adj = -log10(p_adj_label)
+  )
 
-ggsave(human_ortho_all_intron_ratio,filename = "human_ortho_all_intron_ratio.pdf",
-       width=8.5,height = 1.7,units = "in")
+#### plot fig4E ####
+max_neglog10 <- max(forest_df$neglog10_p_adj)
+min_neglog10 <- min(forest_df$neglog10_p_adj)
+order_by_allSites <- c("Salivary_gland", "Blood", "Blood_vessel", "Nerve", "Pancreas",
+                       "Muscle", "Small_intestine", "Stomach",
+                       "Heart", "Esophagus", "Spleen", "Thyroid",
+                       "Colon", "Adrenal_gland", "Lung", "Adipose_tissue",
+                       "Brain", "Skin")
+
+shortGCAT_long_increasingMSR_odds_plot <- forest_df %>%
+  filter(comparison %in% c("long vs short AT-rich","long vs short GC-rich")) %>%
+  mutate(tissue = factor(tissue,
+                         levels = rev(order_by_allSites)),
+         comparison = factor(comparison,
+                             levels = c("long vs short GC-rich",
+                                        "long vs short AT-rich"))) %>% 
+  ggplot(aes(x = OR, y = tissue, color = sig, size = neglog10_p_adj)) +
+  facet_wrap( ~ comparison, ncol = 2) +
+  geom_point(alpha = 0.85) +
+  geom_errorbarh(
+    aes(xmin = CI_low, xmax = CI_high),
+    width = 0.2,alpha = 0.85,
+    size = 0.8) +
+  geom_vline(xintercept = 1, linetype = "dashed", color = "grey40") +
+  scale_x_log10() +
+  scale_color_manual(
+    values = c("TRUE"  = "#D55E00",
+               "FALSE" = "grey60"),
+    labels = c("TRUE"  = "Sig. (p.adj < 0.05)",
+               "FALSE" = "Not sig. (p.adj ≥ 0.05)"),
+    name   = ""
+  ) +
+  scale_size_continuous(
+    name   = expression(-log[10]("p.adj")),
+    range  = c(1, 4),
+    breaks = c(min_neglog10, 1.30103, 5, max_neglog10),
+    labels = c(round(min_neglog10,digits = 2), "1.3", "5" , "> 15.66")
+  ) +
+  labs(
+    x = "Odds ratio (short vs long intron)",
+    y = NULL,
+    color = ""
+  ) +
+  theme_classic(base_size = 14) +
+  theme(legend.position = "bottom",
+        legend.box = "vertical",    
+        legend.box.just = "left")
+
+shortGCAT_long_increasingMSR_odds_plot
+
+ggsave(filename = "shortGCAT_long_increasingMSR_odds_plot.pdf",
+       plot = shortGCAT_long_increasingMSR_odds_plot,width = 6, height = 5)

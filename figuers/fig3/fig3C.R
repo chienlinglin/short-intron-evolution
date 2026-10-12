@@ -1,48 +1,66 @@
 library(dplyr)
-library(tidyr)
+library(ggrepel)
 library(ggplot2)
-length_ageScore <- read.csv("/data2/Data/ang_chu_data/short_intron/orthoFinder/ScriptsForOrthoIntrons/short_intron_evolution_heatmap.csv")
+RBP_clip_result <- read.csv("RBP_clip_result.csv")
 
-### 1.  ageScore == 4
-age4_data <- length_ageScore %>% 
-  filter(ageScore == 4) %>%
-  mutate(oriIntronID_1 = oriIntronID) %>%
-  separate(col = oriIntronID_1,
-           into = c("humanID","mouseID",'chickenID',"turtleID","frogID","zebrafishID"),sep = ",",
+#### plot fig5D ####
+selected_RBPs <- c("SFPQ","PUS1","METTL14","METTL3","ALKBH5",
+                   "FUS","ELAVL1", "U2AF2","FUBP3","HNRNPC",
+                   "SRSF1","HNRNPH","HNRNPL","HNRNPH1","AQR"
+)
+res_plot <- res %>%
+  as.data.frame() %>%
+  mutate(
+    RBP = as.character(RBP),
+    log2OR = log2(odds_ratio),
+    log10FDR = -log10(padj),
+    RBP_label = case_when(preference == "short" ~ RBP,
+                          RBP %in% selected_RBPs ~ RBP,
+                          TRUE ~ NA
+    )
   )
-## GC cutoff 
-age4_data %>% dplyr::select(humanID,human_intronGC) %>% distinct() %>% pull(human_intronGC) %>% hist()
-abline(v=0.45) 
-### 2. IQR
-age4_data <- age4_data %>%
-  rowwise() %>%
-  mutate(length_IQR = IQR(c_across(c(Human, Mouse, Chicken, Turtle, Frog, Zebrafish))),
-         huamnGC_group = ifelse(human_intronGC<0.45,"AT-rich","GC-rich"))
-### ks test 
-ks_res <- ks.test(age4_data$length_IQR[age4_data$huamnGC_group == "AT-rich"],
-                  age4_data$length_IQR[age4_data$huamnGC_group == "GC-rich"])
-ks_stat <- round(ks_res$statistic, 3)
-ks_pval <- format.pval(ks_res$p.value, digits = 3, eps = 0.001)
 
-### gg_hitogram
-lenIQR_histo <- ggplot(age4_data, aes(x = length_IQR, fill = huamnGC_group)) +
-  geom_histogram(position = "identity", alpha = 0.5, bins = 20) +
-  scale_fill_manual(values = c("AT-rich" = "blue", "GC-rich" = "red")) +
-  labs(x = "Cross-species intron length variation (IQR)", 
-       y = "Count",
-       fill = "Human intron\n(Age = 4)") +
-  theme_linedraw(base_size = 18)+
-  annotate("text", 
-           x = 0.5, y = 2000,   
-           label = paste0("Kolmogorov-Smirnov test",
-                          "\nD = ", ks_stat,
-                          "\nP ", ks_pval),
-           hjust = 0, vjust = 1, size = 4)+
-  theme(legend.position = c(0.85, 0.5),
+RBP_enrichment <- res_plot %>%
+  ggplot(
+    aes(x = log2OR,
+        y = log10FDR,
+        color = preference,
+        label = RBP_label)) +
+  geom_point(alpha = 0.7, size = 1.5) +
+  scale_color_manual(
+    name = "",   # legend title
+    values = c(
+      short = "#D7191C",
+      none  = "grey70",
+      long  = "#2C7BB6"
+    ),
+    labels = c(
+      short = "Short intron\nenriched",
+      none  = "No preference",
+      long  = "Long intron\nenriched"
+    )
+  ) +
+  xlab(expression(log[2]*"(Odds Ratio)")) +
+  ylab(expression(-log[10]*"(FDR)"))+
+  geom_text_repel(na.rm = TRUE, max.overlaps = 25,
+                  box.padding = 1,  
+                  size = 3,
+                  point.padding = 0.1,
+                  segment.color = "grey50",
+                  color = "black"
+  ) +
+  theme_linedraw(base_size = 14) +
+  theme(legend.position = "inside",
+        legend.position.inside = c(0.13, 0.85),
+        legend.text = element_text(face = "bold",size=10),
         legend.background = element_blank(),
         panel.grid.major = element_line(color = "grey90", linewidth = 0.4),
-        panel.grid.minor = element_line(color = "grey95", linewidth = 0.3))
+        panel.grid.minor = element_line(color = "grey95", linewidth = 0.3),
+        strip.background = element_blank(),
+        legend.key = element_blank()) 
 
-lenIQR_histo
+RBP_enrichment
 
-ggsave(lenIQR_histo,filename = "lenIQR_histo.pdf",width = 5,height = 6)
+ggsave(RBP_enrichment,
+       filename = "RBP_enrichment.pdf",
+       width = 5.5,height = 4.4)
